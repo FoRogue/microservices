@@ -1,0 +1,140 @@
+basePath: /
+definitions:
+  internal.ErrorResponse:
+    properties:
+      error:
+        example: invalid credentials
+        type: string
+    type: object
+  internal.LoginRequest:
+    properties:
+      password:
+        example: s3cret123
+        type: string
+      username:
+        example: alice
+        type: string
+    type: object
+  internal.RegisterRequest:
+    properties:
+      password:
+        example: s3cret123
+        type: string
+      username:
+        example: alice
+        type: string
+    type: object
+  internal.TokenResponse:
+    properties:
+      token:
+        type: string
+    type: object
+  internal.User:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      username:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Сервис авторизации/регистрации пользователей.
+  title: Auth Service API
+  version: "1.0"
+paths:
+  /api/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Учётные данные
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.TokenResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Аутентификация и получение JWT-токена
+      tags:
+      - auth
+  /api/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.User'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Данные текущего пользователя по токену
+      tags:
+      - auth
+  /api/register:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Данные регистрации
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Регистрация нового пользователя
+      tags:
+      - auth
+  /health:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Проверка живости сервиса
+      tags:
+      - health
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
