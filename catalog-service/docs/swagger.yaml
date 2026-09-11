@@ -1,0 +1,299 @@
+basePath: /
+definitions:
+  internal.AddCartItemRequest:
+    properties:
+      product_id:
+        example: 1
+        type: integer
+      quantity:
+        example: 2
+        type: integer
+      user_id:
+        example: user-1
+        type: string
+    type: object
+  internal.CartItem:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      product:
+        $ref: '#/definitions/internal.Product'
+      product_id:
+        type: integer
+      quantity:
+        type: integer
+      user_id:
+        type: string
+    type: object
+  internal.ErrorResponse:
+    properties:
+      error:
+        example: product not found
+        type: string
+    type: object
+  internal.Product:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      price:
+        type: number
+    type: object
+  internal.ProductRequest:
+    properties:
+      description:
+        example: Механическая клавиатура
+        type: string
+      name:
+        example: Клавиатура
+        type: string
+      price:
+        example: 4990
+        type: number
+    type: object
+  internal.UpdateCartItemRequest:
+    properties:
+      quantity:
+        example: 3
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: Сервис каталога товаров и корзины покупок.
+  title: Catalog Service API
+  version: "1.0"
+paths:
+  /api/cart:
+    get:
+      parameters:
+      - description: ID пользователя
+        in: query
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal.CartItem'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Содержимое корзины пользователя
+      tags:
+      - cart
+  /api/cart/items:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Товар и количество
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.AddCartItemRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal.CartItem'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Добавить товар в корзину
+      tags:
+      - cart
+  /api/cart/items/{id}:
+    delete:
+      parameters:
+      - description: ID позиции корзины
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Удалить товар из корзины
+      tags:
+      - cart
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: ID позиции корзины
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Новое количество
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.UpdateCartItemRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.CartItem'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Изменить количество товара в корзине
+      tags:
+      - cart
+  /api/products:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal.Product'
+            type: array
+      summary: Список товаров
+      tags:
+      - products
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Данные товара
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.ProductRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal.Product'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Создать товар
+      tags:
+      - products
+  /api/products/{id}:
+    delete:
+      parameters:
+      - description: ID товара
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Удалить товар
+      tags:
+      - products
+    get:
+      parameters:
+      - description: ID товара
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.Product'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Получить товар по id
+      tags:
+      - products
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: ID товара
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Данные товара
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.ProductRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.Product'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Обновить товар
+      tags:
+      - products
+  /health:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Проверка живости сервиса
+      tags:
+      - health
+swagger: "2.0"
