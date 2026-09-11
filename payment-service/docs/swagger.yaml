@@ -1,0 +1,117 @@
+basePath: /
+definitions:
+  internal.CreatePaymentRequest:
+    properties:
+      amount:
+        example: 1999.9
+        type: number
+      order_id:
+        example: order-123
+        type: string
+    type: object
+  internal.ErrorResponse:
+    properties:
+      error:
+        example: payment not found
+        type: string
+    type: object
+  internal.Payment:
+    properties:
+      amount:
+        type: number
+      created_at:
+        type: string
+      id:
+        type: integer
+      order_id:
+        type: string
+      status:
+        example: succeeded
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Сервис оплаты заказов.
+  title: Payment Service API
+  version: "1.0"
+paths:
+  /api/payments:
+    get:
+      parameters:
+      - description: ID заказа
+        in: query
+        name: order_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal.Payment'
+            type: array
+      summary: Список платежей, опционально по заказу
+      tags:
+      - payments
+    post:
+      consumes:
+      - application/json
+      description: 'Симулирует платёжный шлюз: положительная сумма — успех, иначе
+        отказ.'
+      parameters:
+      - description: Данные платежа
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.CreatePaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal.Payment'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Провести оплату заказа
+      tags:
+      - payments
+  /api/payments/{id}:
+    get:
+      parameters:
+      - description: ID платежа
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.Payment'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      summary: Получить платёж по id
+      tags:
+      - payments
+  /health:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Проверка живости сервиса
+      tags:
+      - health
+swagger: "2.0"
