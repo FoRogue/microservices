@@ -65,6 +65,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/internal.CreatePaymentRequest"
                         }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Reuse the key when retrying the same payment",
+                        "name": "Idempotency-Key",
+                        "in": "header"
                     }
                 ],
                 "responses": {
@@ -76,6 +82,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/internal.ErrorResponse"
                         }

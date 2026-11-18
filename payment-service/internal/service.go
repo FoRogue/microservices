@@ -10,8 +10,8 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) CreatePayment(ctx context.Context, req CreatePaymentRequest) (Payment, error) {
-	return s.repo.CreatePayment(ctx, req, paymentStatus(req.Amount))
+func (s *Service) CreatePayment(ctx context.Context, req CreatePaymentRequest, key string) (Payment, error) {
+	return s.repo.CreatePayment(ctx, req, paymentStatus(req.Amount), key)
 }
 
 func paymentStatus(amount Money) string {

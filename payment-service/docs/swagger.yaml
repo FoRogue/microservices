@@ -66,6 +66,10 @@ paths:
         required: true
         schema:
           $ref: '#/definitions/internal.CreatePaymentRequest'
+      - description: Reuse the key when retrying the same payment
+        in: header
+        name: Idempotency-Key
+        type: string
       produces:
       - application/json
       responses:
@@ -75,6 +79,10 @@ paths:
             $ref: '#/definitions/internal.Payment'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/internal.ErrorResponse'
       summary: Провести оплату заказа

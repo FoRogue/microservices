@@ -13,12 +13,17 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (repo *Repository) CreatePayment(ctx context.Context, req CreatePaymentRequest, status string) (Payment, error) {
+func (repo *Repository) CreatePayment(ctx context.Context, req CreatePaymentRequest, status, key string) (Payment, error) {
 	var p Payment
 	err := repo.db.QueryRowContext(ctx,
-		`INSERT INTO payments (order_id, amount, status) VALUES ($1, $2::text::numeric, $3)
+		`INSERT INTO payments (order_id, amount, status, idempotency_key)
+		 VALUES ($1, $2::text::numeric, $3, NULLIF($4, ''))
+		 ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+		 WHERE payments.order_id = EXCLUDED.order_id
+		   AND payments.amount = EXCLUDED.amount
+		   AND payments.status = EXCLUDED.status
 		 RETURNING id, order_id, amount, status, created_at`,
-		req.OrderID, req.Amount.databaseValue(), status,
+		req.OrderID, req.Amount.databaseValue(), status, key,
 	).Scan(&p.ID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt)
 	return p, err
 }

@@ -43,6 +43,8 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 // @Param request body CreatePaymentRequest true "Данные платежа"
 // @Success 201 {object} Payment
 // @Failure 400 {object} ErrorResponse
+// @Param Idempotency-Key header string false "Reuse the key when retrying the same payment"
+// @Failure 409 {object} ErrorResponse
 // @Router /api/payments [post]
 func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	var req CreatePaymentRequest
@@ -55,7 +57,16 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.service.CreatePayment(r.Context(), req)
+	key := r.Header.Get("Idempotency-Key")
+	if len(key) > 128 {
+		writeError(w, http.StatusBadRequest, "idempotency key is too long")
+		return
+	}
+	p, err := h.service.CreatePayment(r.Context(), req, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusConflict, "idempotency key already used for another payment")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create payment")
 		return
