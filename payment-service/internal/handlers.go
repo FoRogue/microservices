@@ -9,11 +9,11 @@ import (
 )
 
 type Handler struct {
-	db *sql.DB
+	service *Service
 }
 
-func NewHandler(db *sql.DB) *Handler {
-	return &Handler{db: db}
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -55,17 +55,7 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := StatusSucceeded
-	if req.Amount <= 0 {
-		status = StatusFailed
-	}
-
-	var p Payment
-	err := h.db.QueryRowContext(r.Context(),
-		`INSERT INTO payments (order_id, amount, status) VALUES ($1, $2, $3)
-		 RETURNING id, order_id, amount, status, created_at`,
-		req.OrderID, req.Amount, status,
-	).Scan(&p.ID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt)
+	p, err := h.service.CreatePayment(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create payment")
 		return
@@ -89,10 +79,7 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var p Payment
-	err = h.db.QueryRowContext(r.Context(),
-		`SELECT id, order_id, amount, status, created_at FROM payments WHERE id = $1`, id,
-	).Scan(&p.ID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt)
+	p, err := h.service.GetPayment(r.Context(), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "payment not found")
 		return
@@ -114,29 +101,10 @@ func (h *Handler) GetPayment(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListPayments(w http.ResponseWriter, r *http.Request) {
 	orderID := r.URL.Query().Get("order_id")
 
-	var rows *sql.Rows
-	var err error
-	if orderID != "" {
-		rows, err = h.db.QueryContext(r.Context(),
-			`SELECT id, order_id, amount, status, created_at FROM payments WHERE order_id = $1 ORDER BY id`, orderID)
-	} else {
-		rows, err = h.db.QueryContext(r.Context(),
-			`SELECT id, order_id, amount, status, created_at FROM payments ORDER BY id`)
-	}
+	payments, err := h.service.ListPayments(r.Context(), orderID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list payments")
 		return
-	}
-	defer rows.Close()
-
-	payments := []Payment{}
-	for rows.Next() {
-		var p Payment
-		if err := rows.Scan(&p.ID, &p.OrderID, &p.Amount, &p.Status, &p.CreatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to read payments")
-			return
-		}
-		payments = append(payments, p)
 	}
 
 	writeJSON(w, http.StatusOK, payments)

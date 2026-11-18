@@ -26,24 +26,9 @@ func OpenDB(dsn string) (*sql.DB, error) {
 		time.Sleep(time.Second)
 	}
 	if lastErr != nil {
+		db.Close()
 		return nil, fmt.Errorf("db not reachable: %w", lastErr)
-	}
-
-	if _, err := db.Exec(schema); err != nil {
-		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 
 	return db, nil
 }
-
-const schema = `
-CREATE TABLE IF NOT EXISTS payments (
-	id BIGSERIAL PRIMARY KEY,
-	order_id TEXT NOT NULL,
-	amount NUMERIC(10,2) NOT NULL,
-	status TEXT NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_payments_order_id ON payments (order_id);
-`

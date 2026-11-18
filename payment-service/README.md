@@ -21,6 +21,7 @@
 ## Запуск локально
 
 ```bash
+go run . migrate
 go run .
 ```
 
@@ -29,7 +30,10 @@ go run .
 Из корня репозитория:
 
 ```bash
-docker compose up --build payment-service payment-db
+docker compose build payment-service
+docker compose up -d --wait payment-db
+docker compose run --rm payment-service migrate
+docker compose up -d --wait payment-service
 ```
 
 ## Обновление Swagger-доков после правки аннотаций
