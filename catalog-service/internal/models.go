@@ -7,15 +7,15 @@ type Product struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
-	Price       float64   `json:"price"`
+	Price       Money     `json:"price" swaggertype:"number"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
 // ProductRequest is the payload for creating/updating a product.
 type ProductRequest struct {
-	Name        string  `json:"name" example:"Клавиатура"`
-	Description string  `json:"description" example:"Механическая клавиатура"`
-	Price       float64 `json:"price" example:"4990.00"`
+	Name        string `json:"name" example:"Клавиатура"`
+	Description string `json:"description" example:"Механическая клавиатура"`
+	Price       Money  `json:"price" swaggertype:"number" example:"4990.00"`
 }
 
 // CartItem is a product placed in a user's cart, with product details joined in.

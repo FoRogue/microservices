@@ -26,6 +26,7 @@
 ## Запуск локально
 
 ```bash
+go run . migrate
 go run .
 ```
 
@@ -34,7 +35,10 @@ go run .
 Из корня репозитория:
 
 ```bash
-docker compose up --build catalog-service catalog-db
+docker compose build catalog-service
+docker compose up -d --wait catalog-db
+docker compose run --rm catalog-service migrate
+docker compose up -d --wait catalog-service
 ```
 
 ## Обновление Swagger-доков после правки аннотаций

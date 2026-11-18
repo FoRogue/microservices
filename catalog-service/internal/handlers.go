@@ -1,17 +1,16 @@
 package internal
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 )
 
 type Handler struct {
-	db *sql.DB
+	repo *Repository
 }
 
-func NewHandler(db *sql.DB) *Handler {
-	return &Handler{db: db}
+func NewHandler(repo *Repository) *Handler {
+	return &Handler{repo: repo}
 }
 
 func (h *Handler) Routes() http.Handler {

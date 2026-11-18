@@ -23,32 +23,10 @@ func (h *Handler) GetCart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT ci.id, ci.user_id, ci.product_id, ci.quantity, ci.created_at,
-		       p.id, p.name, p.description, p.price, p.created_at
-		FROM cart_items ci
-		JOIN products p ON p.id = ci.product_id
-		WHERE ci.user_id = $1
-		ORDER BY ci.id`, userID)
+	items, err := h.repo.GetCart(r.Context(), userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load cart")
 		return
-	}
-	defer rows.Close()
-
-	items := []CartItem{}
-	for rows.Next() {
-		var item CartItem
-		var p Product
-		if err := rows.Scan(
-			&item.ID, &item.UserID, &item.ProductID, &item.Quantity, &item.CreatedAt,
-			&p.ID, &p.Name, &p.Description, &p.Price, &p.CreatedAt,
-		); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to read cart")
-			return
-		}
-		item.Product = &p
-		items = append(items, item)
 	}
 
 	writeJSON(w, http.StatusOK, items)
@@ -75,20 +53,11 @@ func (h *Handler) AddCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.fetchProduct(r, req.ProductID); errors.Is(err, sql.ErrNoRows) {
+	item, err := h.repo.AddCartItem(r.Context(), req)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "product not found")
 		return
-	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to verify product")
-		return
 	}
-
-	var item CartItem
-	err := h.db.QueryRowContext(r.Context(),
-		`INSERT INTO cart_items (user_id, product_id, quantity) VALUES ($1, $2, $3)
-		 RETURNING id, user_id, product_id, quantity, created_at`,
-		req.UserID, req.ProductID, req.Quantity,
-	).Scan(&item.ID, &item.UserID, &item.ProductID, &item.Quantity, &item.CreatedAt)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to add item to cart")
 		return
@@ -125,12 +94,7 @@ func (h *Handler) UpdateCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var item CartItem
-	err = h.db.QueryRowContext(r.Context(),
-		`UPDATE cart_items SET quantity = $1 WHERE id = $2
-		 RETURNING id, user_id, product_id, quantity, created_at`,
-		req.Quantity, id,
-	).Scan(&item.ID, &item.UserID, &item.ProductID, &item.Quantity, &item.CreatedAt)
+	item, err := h.repo.UpdateCartItem(r.Context(), id, req.Quantity)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "cart item not found")
 		return
@@ -156,13 +120,13 @@ func (h *Handler) DeleteCartItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.ExecContext(r.Context(), `DELETE FROM cart_items WHERE id = $1`, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete cart item")
+	err = h.repo.DeleteCartItem(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "cart item not found")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		writeError(w, http.StatusNotFound, "cart item not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete cart item")
 		return
 	}
 

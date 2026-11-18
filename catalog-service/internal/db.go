@@ -26,30 +26,9 @@ func OpenDB(dsn string) (*sql.DB, error) {
 		time.Sleep(time.Second)
 	}
 	if lastErr != nil {
+		db.Close()
 		return nil, fmt.Errorf("db not reachable: %w", lastErr)
-	}
-
-	if _, err := db.Exec(schema); err != nil {
-		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 
 	return db, nil
 }
-
-const schema = `
-CREATE TABLE IF NOT EXISTS products (
-	id BIGSERIAL PRIMARY KEY,
-	name TEXT NOT NULL,
-	description TEXT NOT NULL DEFAULT '',
-	price NUMERIC(10,2) NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS cart_items (
-	id BIGSERIAL PRIMARY KEY,
-	user_id TEXT NOT NULL,
-	product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-	quantity INT NOT NULL CHECK (quantity > 0),
-	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-`

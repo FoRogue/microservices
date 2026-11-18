@@ -15,22 +15,10 @@ import (
 // @Success 200 {array} Product
 // @Router /api/products [get]
 func (h *Handler) ListProducts(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, name, description, price, created_at FROM products ORDER BY id`)
+	products, err := h.repo.ListProducts(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list products")
 		return
-	}
-	defer rows.Close()
-
-	products := []Product{}
-	for rows.Next() {
-		var p Product
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.CreatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to read products")
-			return
-		}
-		products = append(products, p)
 	}
 
 	writeJSON(w, http.StatusOK, products)
@@ -51,7 +39,7 @@ func (h *Handler) GetProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.fetchProduct(r, id)
+	p, err := h.repo.GetProduct(r.Context(), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "product not found")
 		return
@@ -61,14 +49,6 @@ func (h *Handler) GetProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, p)
-}
-
-func (h *Handler) fetchProduct(r *http.Request, id int64) (Product, error) {
-	var p Product
-	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, name, description, price, created_at FROM products WHERE id = $1`, id,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.CreatedAt)
-	return p, err
 }
 
 // CreateProduct godoc
@@ -86,17 +66,12 @@ func (h *Handler) CreateProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Name == "" || req.Price < 0 {
+	if req.Name == "" || req.Price.sign() < 0 {
 		writeError(w, http.StatusBadRequest, "name is required and price must be non-negative")
 		return
 	}
 
-	var p Product
-	err := h.db.QueryRowContext(r.Context(),
-		`INSERT INTO products (name, description, price) VALUES ($1, $2, $3)
-		 RETURNING id, name, description, price, created_at`,
-		req.Name, req.Description, req.Price,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.CreatedAt)
+	p, err := h.repo.CreateProduct(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create product")
 		return
@@ -128,17 +103,12 @@ func (h *Handler) UpdateProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Name == "" || req.Price < 0 {
+	if req.Name == "" || req.Price.sign() < 0 {
 		writeError(w, http.StatusBadRequest, "name is required and price must be non-negative")
 		return
 	}
 
-	var p Product
-	err = h.db.QueryRowContext(r.Context(),
-		`UPDATE products SET name = $1, description = $2, price = $3 WHERE id = $4
-		 RETURNING id, name, description, price, created_at`,
-		req.Name, req.Description, req.Price, id,
-	).Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.CreatedAt)
+	p, err := h.repo.UpdateProduct(r.Context(), id, req)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "product not found")
 		return
@@ -164,13 +134,13 @@ func (h *Handler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.ExecContext(r.Context(), `DELETE FROM products WHERE id = $1`, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete product")
+	err = h.repo.DeleteProduct(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "product not found")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		writeError(w, http.StatusNotFound, "product not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete product")
 		return
 	}
 
