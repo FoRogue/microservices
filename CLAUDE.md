@@ -18,7 +18,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `main.go` — точка входа: грузит конфиг из env, открывает БД, монтирует роуты и Swagger UI (`/swagger/index.html`).
 - `internal/config.go` — конфиг из переменных окружения (`PORT`, `DATABASE_URL`, для auth ещё `JWT_SECRET`).
-- `internal/db.go` — открытие `*sql.DB` через `pgx` (драйвер `github.com/jackc/pgx/v5/stdlib`), ретраи пинга при старте, автоприменение схемы (`CREATE TABLE IF NOT EXISTS`) — отдельных миграций нет.
+- `internal/db.go` — подключение к PostgreSQL через `database/sql` и `pgx`.
+- `internal/repository.go` — SQL-запросы и чтение результатов.
+- `internal/migrations/` — версионируемые SQL-миграции для команды `migrate`.
 - `internal/handlers.go` (+ `products.go`/`cart.go` в catalog-service) — обработчики на стандартном `net/http` (Go 1.22+ `ServeMux` с методами и `{id}`-паттернами в путях), с swaggo-аннотациями (`@Summary`, `@Router` и т.д.) прямо над функциями.
 - `internal/models.go` — DTO и доменные структуры, используются одновременно как JSON-модели и как источник схем для Swagger.
 - `docs/` — генерируется командой `swag init`, **не редактировать руками**.
@@ -33,15 +35,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 go build ./...              # собрать
 go vet ./...                 # статический анализ
-go run .                     # запустить локально (нужен Postgres, см. README сервиса)
+go run . migrate             # подготовить схему PostgreSQL
+go run .                     # запустить локально
 go run github.com/swaggo/swag/cmd/swag init -g main.go -o docs   # перегенерировать Swagger после правки аннотаций
 ```
 
 Из корня репозитория:
 
 ```bash
-docker compose up --build           # поднять все 6 контейнеров (3 сервиса + 3 БД)
-docker compose up --build auth-service auth-db   # поднять только один сервис с его БД
+docker compose build auth-service
+docker compose up -d --wait auth-db
+docker compose run --rm auth-service migrate
+docker compose up -d --wait auth-service
 ```
 
 Тестов пока нет.
