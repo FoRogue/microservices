@@ -1,0 +1,182 @@
+basePath: /
+definitions:
+  internal.CreateOrderRequest:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal.ItemRequest'
+        type: array
+    type: object
+  internal.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  internal.ItemRequest:
+    properties:
+      product_id:
+        example: 1
+        type: integer
+      quantity:
+        example: 2
+        type: integer
+    type: object
+  internal.Order:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/internal.OrderItem'
+        type: array
+      payment_id:
+        type: integer
+      status:
+        enum:
+        - PENDING_PAYMENT
+        - PAID
+        - PAYMENT_FAILED
+        type: string
+      total:
+        type: number
+      user_id:
+        type: integer
+    type: object
+  internal.OrderItem:
+    properties:
+      product_id:
+        type: integer
+      product_name:
+        type: string
+      quantity:
+        type: integer
+      unit_price:
+        type: number
+    type: object
+info:
+  contact: {}
+  description: Creation, payment and status of customer orders.
+  title: Order Service API
+  version: "1.0"
+paths:
+  /api/orders:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Products and quantities
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal.CreateOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal.Order'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create an order from catalog products
+      tags:
+      - orders
+  /api/orders/{id}:
+    get:
+      parameters:
+      - description: Order UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.Order'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Read your order and its status
+      tags:
+      - orders
+  /api/orders/{id}/pay:
+    post:
+      description: Repeat the request if the payment service is temporarily unavailable.
+      parameters:
+      - description: Order UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal.Order'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Pay for your order
+      tags:
+      - orders
+securityDefinitions:
+  BearerAuth:
+    description: Enter Bearer followed by the token from auth-service.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
