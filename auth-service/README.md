@@ -21,6 +21,7 @@
 ## Запуск локально
 
 ```bash
+go run . migrate
 go run .
 ```
 
@@ -29,7 +30,10 @@ go run .
 Из корня репозитория:
 
 ```bash
-docker compose up --build auth-service auth-db
+docker compose build auth-service
+docker compose up -d --wait auth-db
+docker compose run --rm auth-service migrate
+docker compose up -d --wait auth-service
 ```
 
 ## Обновление Swagger-доков после правки аннотаций

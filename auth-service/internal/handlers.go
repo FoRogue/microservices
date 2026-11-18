@@ -1,24 +1,18 @@
 package internal
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
-	"time"
-
-	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type Handler struct {
-	db        *sql.DB
-	jwtSecret []byte
+	service *Service
 }
 
-func NewHandler(db *sql.DB, jwtSecret string) *Handler {
-	return &Handler{db: db, jwtSecret: []byte(jwtSecret)}
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -55,29 +49,18 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	req.Username = strings.TrimSpace(req.Username)
-	if req.Username == "" || len(req.Password) < 6 {
-		writeError(w, http.StatusBadRequest, "username is required and password must be at least 6 characters")
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	user, err := h.service.Register(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to hash password")
-		return
-	}
-
-	var user User
-	err = h.db.QueryRowContext(r.Context(),
-		`INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username, created_at`,
-		req.Username, string(hash),
-	).Scan(&user.ID, &user.Username, &user.CreatedAt)
-	if err != nil {
-		if isUniqueViolation(err) {
-			writeError(w, http.StatusConflict, "username already taken")
-			return
+		switch {
+		case errors.Is(err, errInvalidRegistration):
+			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, errUsernameTaken):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, errHashPassword):
+			writeError(w, http.StatusInternalServerError, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to create user")
 		}
-		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
 
@@ -101,28 +84,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var user User
-	var passwordHash string
-	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, username, password_hash, created_at FROM users WHERE username = $1`,
-		req.Username,
-	).Scan(&user.ID, &user.Username, &passwordHash, &user.CreatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
-		return
-	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to query user")
-		return
-	}
-
-	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
-		return
-	}
-
-	token, err := h.issueToken(user)
+	token, err := h.service.Login(r.Context(), req)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to issue token")
+		switch {
+		case errors.Is(err, errInvalidCredentials):
+			writeError(w, http.StatusUnauthorized, err.Error())
+		case errors.Is(err, errIssueToken):
+			writeError(w, http.StatusInternalServerError, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to query user")
+		}
 		return
 	}
 
@@ -144,38 +115,13 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-		return h.jwtSecret, nil
-	})
+	user, err := h.service.CurrentUser(r.Context(), tokenStr)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid or expired token")
-		return
-	}
-
-	username, _ := claims["username"].(string)
-	var user User
-	err = h.db.QueryRowContext(r.Context(),
-		`SELECT id, username, created_at FROM users WHERE username = $1`,
-		username,
-	).Scan(&user.ID, &user.Username, &user.CreatedAt)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "user not found")
+		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, user)
-}
-
-func (h *Handler) issueToken(user User) (string, error) {
-	claims := jwt.MapClaims{
-		"sub":      user.ID,
-		"username": user.Username,
-		"exp":      time.Now().Add(24 * time.Hour).Unix(),
-		"iat":      time.Now().Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(h.jwtSecret)
 }
 
 func bearerToken(r *http.Request) string {
@@ -185,10 +131,6 @@ func bearerToken(r *http.Request) string {
 		return strings.TrimPrefix(h, prefix)
 	}
 	return ""
-}
-
-func isUniqueViolation(err error) bool {
-	return strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate")
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

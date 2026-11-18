@@ -12,6 +12,8 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
+	"time"
 
 	httpSwagger "github.com/swaggo/http-swagger"
 
@@ -20,6 +22,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && (len(os.Args) != 2 || os.Args[1] != "migrate") {
+		log.Fatal("usage: auth-service [migrate]")
+	}
 	cfg := internal.LoadConfig()
 
 	db, err := internal.OpenDB(cfg.DatabaseURL)
@@ -28,14 +33,30 @@ func main() {
 	}
 	defer db.Close()
 
-	handler := internal.NewHandler(db, cfg.JWTSecret)
+	if len(os.Args) == 2 {
+		if err := internal.Migrate(db); err != nil {
+			log.Fatalf("failed to apply migrations: %v", err)
+		}
+		return
+	}
+
+	repo := internal.NewRepository(db)
+	handler := internal.NewHandler(internal.NewService(repo, cfg.JWTSecret))
 
 	mux := http.NewServeMux()
 	mux.Handle("/", handler.Routes())
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	log.Printf("auth-service listening on :%s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, mux); err != nil {
+	server := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
