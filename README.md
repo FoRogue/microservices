@@ -1,5 +1,43 @@
 # microservices
 
+## Показ обеих лабораторных одновременно
+
+Запусти Docker Desktop и открой `start.cmd` в обеих папках,
+`demo/part1` и `demo/part2`. Те же команды из корня проекта в PowerShell:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\demo\part1\start.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\demo\part2\start.ps1
+```
+
+Каждый скрипт берёт снимок своей ветки Git и запускает отдельный Compose-проект
+со своими базами. Для сценария покупки зарегистрируй пользователя и создай товар
+в каждой лабораторной отдельно.
+
+| Swagger | Лаба 1 | Лаба 2 |
+| --- | --- | --- |
+| Авторизация | [18081](http://localhost:18081/swagger/index.html) | [28081](http://localhost:28081/swagger/index.html) |
+| Каталог | [18082](http://localhost:18082/swagger/index.html) | [28082](http://localhost:28082/swagger/index.html) |
+| Оплата | [18083](http://localhost:18083/swagger/index.html) | [28083](http://localhost:28083/swagger/index.html) |
+| Заказы | [18084](http://localhost:18084/swagger/index.html) | [28084](http://localhost:28084/swagger/index.html) |
+
+Для демонстрации Kafka останови оплату во второй лабе, отправь запрос на
+оплату через Swagger заказов и запусти оплату снова. Проверь статус через GET.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\demo\part2\start.ps1 -Action stop-payment
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\demo\part2\start.ps1 -Action start-payment
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\demo\part2\start.ps1 -Action logs
+```
+
+У обоих скриптов есть `-Action ps` для проверки контейнеров и `-Action down`
+для остановки своего проекта с сохранением данных.
+
+Если первая сборка второй лабы зависает на скачивании Go-зависимостей внутри
+Docker, запусти `demo\part2\start.cmd -LocalGo`. Этот режим использует
+установленный на компьютере Go для сборки заказов и оплаты. Готовые образы
+переиспользуются при следующем запуске.
+
 ## Part 2 · Асинхронная оплата через Kafka
 
 Работают четыре сервиса из part 1, каждый со своей PostgreSQL.
