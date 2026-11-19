@@ -96,12 +96,13 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Pay godoc
 // @Summary Pay for your order
-// @Description Repeat the request if the payment service is temporarily unavailable.
+// @Description Queues payment in Kafka. Poll the order to see the result.
 // @Tags orders
 // @Produce json
 // @Security BearerAuth
 // @Param id path string true "Order UUID"
 // @Success 200 {object} Order
+// @Success 202 {object} Order
 // @Failure 400 {object} ErrorResponse
 // @Failure 401 {object} ErrorResponse
 // @Failure 404 {object} ErrorResponse
@@ -115,6 +116,10 @@ func (h *Handler) Pay(w http.ResponseWriter, r *http.Request) {
 	order, err := h.service.Pay(r.Context(), userID, id)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if order.Status == pending {
+		writeJSON(w, http.StatusAccepted, order)
 		return
 	}
 	writeJSON(w, http.StatusOK, order)

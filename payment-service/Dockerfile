@@ -1,7 +1,9 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
+COPY --from=eventing /go.mod /go.sum /eventing/
 COPY go.mod go.sum ./
 RUN go mod download
+COPY --from=eventing / /eventing/
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/payment-service .
 

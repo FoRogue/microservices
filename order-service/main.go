@@ -11,6 +11,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	httpSwagger "github.com/swaggo/http-swagger"
 
+	"github.com/ForRogue/microservices/eventing"
 	_ "github.com/ForRogue/microservices/order-service/docs"
 	"github.com/ForRogue/microservices/order-service/internal"
 )
@@ -58,7 +60,12 @@ func main() {
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	if err := server.ListenAndServe(); err != nil {
+	if err := eventing.Serve(server,
+		func(ctx context.Context) { eventing.Publish(ctx, db, eventing.PaymentsRequested) },
+		func(ctx context.Context) {
+			eventing.Consume(ctx, eventing.OrderGroup, eventing.PaymentsCompleted, repo.ApplyPaymentResult)
+		},
+	); err != nil {
 		log.Fatal(err)
 	}
 }

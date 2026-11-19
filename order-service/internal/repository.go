@@ -3,6 +3,8 @@ package internal
 import (
 	"context"
 	"database/sql"
+
+	"github.com/ForRogue/microservices/eventing"
 )
 
 type Repository struct {
@@ -64,13 +66,39 @@ func (r *Repository) Get(ctx context.Context, userID int64, orderID string) (Ord
 	return order, rows.Err()
 }
 
-func (r *Repository) RecordPayment(ctx context.Context, order Order, status string, paymentID int64) (Order, error) {
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE orders SET status = $1, payment_id = $2
-		WHERE id = $3 AND user_id = $4 AND status = $5`,
-		status, paymentID, order.ID, order.UserID, pending)
+func (r *Repository) RequestPayment(ctx context.Context, order Order) error {
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Order{}, err
+		return err
 	}
-	return r.Get(ctx, order.UserID, order.ID)
+	defer tx.Rollback()
+
+	event := eventing.New(eventing.PaymentRequested, order.ID, eventing.Payload{AmountCents: int64(order.Total)})
+	if err := eventing.Enqueue(ctx, tx, eventing.PaymentsRequested, event); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *Repository) ApplyPaymentResult(ctx context.Context, event eventing.Event) (string, error) {
+	status := paid
+	if event.Type == eventing.PaymentFailed {
+		status = failed
+	}
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE orders SET status = $1, payment_id = $2
+		WHERE id = $3 AND total_cents = $4 AND status = $5
+		  AND EXISTS (SELECT 1 FROM kafka_outbox WHERE topic = $6 AND message_key = $3::uuid::text)`,
+		status, event.Payload.PaymentID, event.AggregateID, event.Payload.AmountCents, pending, eventing.PaymentsRequested)
+	if err != nil {
+		return "", err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return "", err
+	}
+	if count == 0 {
+		return "IGNORED", nil
+	}
+	return status, nil
 }

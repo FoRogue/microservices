@@ -65,9 +65,8 @@ func (s *Service) Pay(ctx context.Context, userID int64, id string) (Order, erro
 	if err != nil || order.Status != pending {
 		return order, err
 	}
-	status, paymentID, err := s.clients.Pay(ctx, order)
-	if err != nil {
+	if err := s.repo.RequestPayment(ctx, order); err != nil {
 		return Order{}, err
 	}
-	return s.repo.RecordPayment(ctx, order, status, paymentID)
+	return order, nil
 }

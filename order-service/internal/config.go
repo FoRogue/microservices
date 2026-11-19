@@ -7,7 +7,6 @@ type Config struct {
 	DatabaseURL string
 	AuthURL     string
 	CatalogURL  string
-	PaymentURL  string
 }
 
 func LoadConfig() Config {
@@ -16,7 +15,6 @@ func LoadConfig() Config {
 		DatabaseURL: env("DATABASE_URL", "postgres://orders:orders@localhost:5436/orders?sslmode=disable"),
 		AuthURL:     env("AUTH_URL", "http://localhost:8081"),
 		CatalogURL:  env("CATALOG_URL", "http://localhost:8082"),
-		PaymentURL:  env("PAYMENT_URL", "http://localhost:8083"),
 	}
 }
 

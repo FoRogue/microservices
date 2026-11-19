@@ -14,8 +14,14 @@ func NewRepository(db *sql.DB) *Repository {
 }
 
 func (repo *Repository) CreatePayment(ctx context.Context, req CreatePaymentRequest, status, key string) (Payment, error) {
+	return createPayment(ctx, repo.db, req, status, key)
+}
+
+func createPayment(ctx context.Context, db interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, req CreatePaymentRequest, status, key string) (Payment, error) {
 	var p Payment
-	err := repo.db.QueryRowContext(ctx,
+	err := db.QueryRowContext(ctx,
 		`INSERT INTO payments (order_id, amount, status, idempotency_key)
 		 VALUES ($1, $2::text::numeric, $3, NULLIF($4, ''))
 		 ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key

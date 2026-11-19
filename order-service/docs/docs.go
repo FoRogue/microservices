@@ -141,7 +141,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Repeat the request if the payment service is temporarily unavailable.",
+                "description": "Queues payment in Kafka. Poll the order to see the result.",
                 "produces": [
                     "application/json"
                 ],
@@ -161,6 +161,12 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal.Order"
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
                         "schema": {
                             "$ref": "#/definitions/internal.Order"
                         }

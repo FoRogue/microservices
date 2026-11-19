@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 type Handler struct {
@@ -58,6 +59,10 @@ func (h *Handler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := r.Header.Get("Idempotency-Key")
+	if strings.HasPrefix(key, "kafka-order:") {
+		writeError(w, http.StatusBadRequest, "idempotency key uses a reserved prefix")
+		return
+	}
 	if len(key) > 128 {
 		writeError(w, http.StatusBadRequest, "idempotency key is too long")
 		return
