@@ -1,91 +1,80 @@
 # microservices
 
-Учебный репозиторий по курсу микросервисов.
+## Part 2 · Асинхронная оплата через Kafka
 
-## part1
+Работают четыре сервиса из part 1, каждый со своей PostgreSQL.
 
-Первая лаба: четыре Go-сервиса со своими базами PostgreSQL и Swagger. Заказы обращаются к другим сервисам по HTTP.
-
-- `auth-service` — авторизация/регистрация пользователей
-- `catalog-service` — каталог товаров + корзина
-- `payment-service` — оплата
-- `order-service` — оформление заказа, фиксация цен и состояние оплаты
+| Сервис | Ответственность | Swagger |
+| --- | --- | --- |
+| auth-service | Регистрация, вход и профиль | [8081](http://localhost:8081/swagger/index.html) |
+| catalog-service | Товары и корзина | [8082](http://localhost:8082/swagger/index.html) |
+| order-service | Заказы, цены на момент покупки и статус | [8084](http://localhost:8084/swagger/index.html) |
+| payment-service | Имитация оплаты | [8083](http://localhost:8083/swagger/index.html) |
 
 ```mermaid
 flowchart LR
-    User["Пользователь"] -->|"Создать или оплатить заказ"| Order["Order Service"]
-    Order -->|"Проверка пользователя"| Auth["Auth Service"]
-    Order -->|"Товары и цены"| Catalog["Catalog Service"]
-    Order -->|"Оплата по HTTP"| Payment["Payment Service"]
-    Payment -->|"Результат оплаты"| Order
+    User["Пользователь"] -->|"POST /api/orders/{id}/pay"| Order["Order Service"]
+    Order -->|"PaymentRequested"| Requested["payments.requested"]
+    Requested --> Payment["Payment Service"]
+    Payment -->|"PaymentSucceeded / PaymentFailed"| Completed["payments.completed"]
+    Completed --> Order
 ```
 
-Каталог хранит актуальные товары и цены. Заказ хранит, кто и что заказал,
-названия товаров, цены на момент оформления и статус оплаты. В part 2
-HTTP-вызов оплаты и обработку его результата можно заменить публикацией запроса
-на оплату и обработкой результата из Kafka. Хранилище заказов и снимки цен
-при этом уже существуют.
+Создание заказа сохраняет данные синхронно через REST и возвращает `201`.
+`POST /api/orders/{id}/pay` записывает запрос оплаты в outbox и возвращает
+`202 Accepted`, пока заказ ожидает результат. Фоновый издатель отправляет
+`PaymentRequested` через Kafka. Платёжный сервис сохраняет платёж и событие
+результата в одной транзакции. Заказ обновляет статус на `PAID` или
+`PAYMENT_FAILED` после получения результата через Kafka.
 
-Подробности по каждому сервису (эндпоинты, переменные окружения) — в README внутри его директории.
+| Топик | Ключ | Партиции | Группа потребителей |
+| --- | --- | --- | --- |
+| `payments.requested` | UUID заказа | 3 | `payment-workers` |
+| `payments.completed` | UUID заказа | 3 | `order-payment-results` |
 
-### Запуск всех сервисов
+JSON содержит `eventId`, `eventType`, `occurredAt`, `aggregateId` и `payload`.
+Сумма передаётся целым числом в центах. Повтор запроса оплаты использует
+одну запись outbox на заказ, а повтор события использует тот же платёж.
+Потребители подтверждают offset после обработки в своей БД.
+
+### Запуск
+
+В PowerShell из корня репозитория:
 
 ```powershell
-docker compose build
-docker compose up -d --wait auth-db catalog-db payment-db order-db
-docker compose run --rm auth-service migrate
-docker compose run --rm catalog-service migrate
-docker compose run --rm payment-service migrate
-docker compose run --rm order-service migrate
-docker compose up -d --wait
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-После старта:
+Скрипт собирает приложения, запускает PostgreSQL и Kafka, применяет миграции
+и запускает сервисы. Kafka доступна на `localhost:9092`, внутри Compose — на
+`kafka:29092`.
 
-- auth-service: <http://localhost:8081/swagger/index.html>
-- catalog-service: <http://localhost:8082/swagger/index.html>
-- payment-service: <http://localhost:8083/swagger/index.html>
-- order-service: <http://localhost:8084/swagger/index.html>
+### Покупка через Swagger
 
-### Как купить товар через Swagger
-
-1. В Swagger авторизации вызовите `POST /api/register`, затем `POST /api/login`
-   с теми же данными. Скопируйте поле `token`.
-2. В Swagger каталога вызовите `POST /api/products` с телом
-   `{"name":"Клавиатура","price":49.90}`. Скопируйте `id` товара.
+1. Зарегистрируйтесь через `POST /api/register`, вызовите `POST /api/login`
+   и скопируйте токен.
+2. Создайте товар через `POST /api/products` с телом
+   `{"name":"Клавиатура","price":49.90}`. Скопируйте его ID.
 3. В Swagger заказов нажмите **Authorize** и введите `Bearer <токен>`.
    Вызовите `POST /api/orders` с телом
    `{"items":[{"product_id":1,"quantity":2}]}`, подставив свой ID товара.
-   Заказ вернётся со статусом `PENDING_PAYMENT`.
-4. Передайте UUID заказа в `POST /api/orders/{id}/pay`. При успешной оплате
-   заказ перейдёт в `PAID`. `GET /api/orders/{id}` показывает его состояние.
+4. Вызовите `POST /api/orders/{id}/pay` с UUID заказа. Затем
+   `GET /api/orders/{id}` покажет итоговый статус после обработки события.
 
-Список позиций передаётся явно. Корзина остаётся в каталоге и сохраняет своё
-содержимое после покупки. Складского учёта в этой версии нет.
+### Проверка отложенной оплаты
 
-### Проверка через Compose
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\smoke-test.ps1
+```
 
-Из корня проекта в PowerShell выполните `./smoke-test.ps1`. Скрипт проверяет
-регистрацию, корзину, оформление заказа при остановленном сервисе платежей,
-повтор оплаты после его запуска и сохранение исходной цены после изменения
-товара в каталоге. Контейнеры остаются запущенными, тестовые записи остаются в БД.
+Проверка останавливает `payment-service`, дважды отправляет запрос оплаты
+и подтверждает, что Kafka приняла его. После запуска сервиса заказ переходит
+в `PAID`, а платёж с исходной ценой существует в единственном экземпляре.
+Для нулевой суммы проверяется `PAYMENT_FAILED`. Скрипт выводит метаданные Kafka.
+Контейнеры остаются запущенными, тестовые записи сохраняются.
 
-### Работа с базой
-
-SQL-запросы находятся в `internal/repository.go` каждого сервиса. Бизнес-логика
-авторизации и расчёта статуса платежа находится в `internal/service.go`.
-Команда `migrate` применяет миграции из `internal/migrations/` к БД сервиса
-и записывает применённые версии в `schema_migrations`. Выполняйте её перед
-первым запуском и после обновлений, меняющих схему. Начальная миграция
-поддерживает базы, созданные старой версией приложения. Для изменения схемы
-добавляйте новый SQL-файл с очередным номером, например `002_add_index.sql`.
-
-### Запуск одного сервиса локально (без Docker)
-
-Нужен запущенный Postgres, см. `DATABASE_URL` по умолчанию в README сервиса.
-
-```bash
-cd auth-service
-go run . migrate
-go run .
+```powershell
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --describe --topic payments.requested
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --describe --topic payments.completed
+docker compose logs payment-service order-service
 ```

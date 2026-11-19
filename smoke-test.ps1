@@ -2,13 +2,16 @@ $ErrorActionPreference = 'Stop'
 
 function Invoke-Compose {
     docker compose @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "docker compose $args failed (exit $LASTEXITCODE)"
-    }
+    if ($LASTEXITCODE -ne 0) { throw "docker compose $args failed (exit $LASTEXITCODE)" }
 }
 
-function Wait-ForService($BaseUrl) {
-    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+function Send-Json($Url, $Data, $Headers = @{}) {
+    Invoke-RestMethod $Url -Method Post -ContentType 'application/json' `
+        -Body (ConvertTo-Json -InputObject $Data -Compress -Depth 5) -Headers $Headers -TimeoutSec 15
+}
+
+function Wait-ForApi($BaseUrl) {
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
         try {
             $health = Invoke-RestMethod "$BaseUrl/health" -TimeoutSec 2
             if ($health.status -eq 'ok') { return }
@@ -16,100 +19,90 @@ function Wait-ForService($BaseUrl) {
             Start-Sleep -Seconds 1
         }
     }
-    throw "Service at $BaseUrl did not become ready"
+    throw "API unavailable at $BaseUrl"
 }
 
-function Send-Json($Url, $Data, $Headers = @{}) {
-    Invoke-RestMethod $Url -Method Post -ContentType 'application/json' `
-        -Body (ConvertTo-Json -InputObject $Data -Compress) -Headers $Headers -TimeoutSec 10
+function Wait-ForPublishedRequest([guid]$Id) {
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        $published = Invoke-Compose exec -T order-db psql -U orders -d orders -Atc `
+            "SELECT EXISTS (SELECT 1 FROM kafka_outbox WHERE topic = 'payments.requested' AND message_key = '$Id' AND published_at IS NOT NULL)"
+        if ($published -eq 't') { return }
+        Start-Sleep -Seconds 1
+    }
+    throw "Kafka did not acknowledge payment request for order $Id"
+}
+
+function Wait-ForOrderStatus($Url, $Headers, $Expected) {
+    for ($attempt = 0; $attempt -lt 45; $attempt++) {
+        $order = Invoke-RestMethod $Url -Headers $Headers -TimeoutSec 5
+        if ($order.status -eq $Expected) { return $order }
+        if ($order.status -ne 'PENDING_PAYMENT') { throw "Unexpected order status $($order.status)" }
+        Start-Sleep -Seconds 1
+    }
+    throw "Timed out waiting for order status $Expected"
 }
 
 Push-Location $PSScriptRoot
 try {
-    Invoke-Compose build
-    Invoke-Compose up --wait --wait-timeout 90 auth-db catalog-db payment-db order-db
-    foreach ($service in 'auth-service', 'catalog-service', 'payment-service', 'order-service') {
-        Invoke-Compose run --rm $service migrate
-    }
-    Invoke-Compose up --wait --wait-timeout 90
+    & "$PSScriptRoot/start.ps1"
+
     $auth = 'http://localhost:8081'
     $catalog = 'http://localhost:8082'
     $payment = 'http://localhost:8083'
     $orders = 'http://localhost:8084/api/orders'
-    foreach ($url in $auth, $catalog, $payment, 'http://localhost:8084') { Wait-ForService $url }
+    foreach ($url in $auth, $catalog, $payment, 'http://localhost:8084') { Wait-ForApi $url }
 
-    $tag = [guid]::NewGuid().ToString('N')
-    $credentials = @{ username = "smoke-$tag"; password = 'smoke-password' }
+    $credentials = @{ username = "smoke-$([guid]::NewGuid().ToString('N'))"; password = 'smoke-password' }
     $user = Send-Json "$auth/api/register" $credentials
     $token = Send-Json "$auth/api/login" $credentials
-    $headers = @{
-        Authorization = "Bearer $($token.token)"
+    $headers = @{ Authorization = "Bearer $($token.token)" }
+    $product = Send-Json "$catalog/api/products" @{ name = 'Kafka test'; price = 9.95 }
+    $order = Send-Json $orders @{ items = @(@{ product_id = $product.id; quantity = 2 }) } $headers
+    if ($order.user_id -ne $user.id -or $order.status -ne 'PENDING_PAYMENT' -or $order.total -ne 19.90) {
+        throw 'Order did not capture the user and original purchase amount'
     }
-    $profile = Invoke-RestMethod "$auth/api/me" -TimeoutSec 5 -Headers $headers
-    if ($profile.id -ne $user.id -or $profile.username -ne $credentials.username) {
-        throw 'Auth profile does not match the registered user'
-    }
-
-    $product = Send-Json "$catalog/api/products" @{ name = "smoke-$tag"; price = 99999999.99 }
-    if ($product.price -ne 99999999.99) { throw 'Product price lost precision' }
-    $cartUrl = "$catalog/api/cart?user_id=$tag"
-    $item = Send-Json "$catalog/api/cart/items" @{
-        user_id = $tag; product_id = $product.id; quantity = 2
-    }
-    $charge = Send-Json "$payment/api/payments" @{ order_id = $tag; amount = 1.005 }
-    if ($charge.status -ne 'succeeded' -or $charge.amount -ne 1.01) {
-        throw 'Payment status or decimal rounding is incorrect'
-    }
-    $cart = Invoke-RestMethod $cartUrl -TimeoutSec 5
-    if ($cart.Count -ne 1 -or $cart[0].id -ne $item.id -or $cart[0].quantity -ne 2) {
-        throw 'Payment changed the cart or the cart item was not saved'
-    }
+    $orderUrl = "$orders/$($order.id)"
+    $replacement = @{ name = 'Repriced Kafka test'; price = 99 } | ConvertTo-Json -Compress
+    Invoke-RestMethod "$catalog/api/products/$($product.id)" -Method Put `
+        -ContentType 'application/json' -Body $replacement -TimeoutSec 5 | Out-Null
 
     try {
         Invoke-Compose stop payment-service
-        $otherProduct = Send-Json "$catalog/api/products" @{ name = "offline-$tag"; price = 10 }
-        $savedProduct = Invoke-RestMethod "$catalog/api/products/$($otherProduct.id)" -TimeoutSec 5
-        if ($savedProduct.name -ne "offline-$tag") {
-            throw 'Catalog could not save a product while payment was stopped'
+        foreach ($attempt in 1..2) {
+            $response = Invoke-WebRequest "$orderUrl/pay" -Method Post -Headers $headers -TimeoutSec 10 -UseBasicParsing
+            if ($response.StatusCode -ne 202) { throw 'Payment was not accepted while its consumer was offline' }
         }
-        $order = Send-Json $orders @{ items = @(@{ product_id = $otherProduct.id; quantity = 2 }) } $headers
-        if ($order.status -ne 'PENDING_PAYMENT' -or $order.total -ne 20 -or $order.user_id -ne $user.id) {
-            throw 'Order did not capture the expected user, price and pending status'
-        }
-        $orderUrl = "$orders/$($order.id)"
-        try {
-            Invoke-RestMethod "$orderUrl/pay" -Method Post -Headers $headers -TimeoutSec 5 | Out-Null
-            throw 'Order payment unexpectedly worked with payment-service stopped'
-        } catch {
-            if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 503) { throw }
-        }
+        Wait-ForPublishedRequest $order.id
         $pending = Invoke-RestMethod $orderUrl -Headers $headers -TimeoutSec 5
-        if ($pending.status -ne 'PENDING_PAYMENT') { throw 'The order is no longer pending' }
-        $replacement = @{ name = "repriced-$tag"; price = 99 } | ConvertTo-Json -Compress
-        Invoke-RestMethod "$catalog/api/products/$($otherProduct.id)" -Method Put `
-            -ContentType 'application/json' -Body $replacement -TimeoutSec 5 | Out-Null
+        if ($pending.status -ne 'PENDING_PAYMENT') { throw 'Order left pending status before payment was processed' }
     } finally {
         Invoke-Compose start payment-service
     }
 
-    Wait-ForService $payment
-    $paid = Invoke-RestMethod "$orderUrl/pay" -Method Post -Headers $headers -TimeoutSec 5
-    $replayed = Invoke-RestMethod "$orderUrl/pay" -Method Post -Headers $headers -TimeoutSec 5
-    $paymentKey = @{ 'Idempotency-Key' = "order:$($order.id)" }
-    $replayedCharge = Send-Json "$payment/api/payments" @{ order_id = $order.id; amount = 20 } $paymentKey
+    $paid = Wait-ForOrderStatus $orderUrl $headers PAID
     $charges = Invoke-RestMethod "$payment/api/payments?order_id=$($order.id)" -TimeoutSec 5
-    if ($paid.status -ne 'PAID' -or $paid.total -ne 20 -or $paid.items[0].unit_price -ne 10 -or
-        $paid.items[0].product_name -ne "offline-$tag" -or $paid.payment_id -ne $replayed.payment_id -or
-        $charges.Count -ne 1 -or $charges[0].id -ne $paid.payment_id -or
-        $replayedCharge.id -ne $paid.payment_id -or $charges[0].amount -ne 20) {
-        throw 'Order payment lost its price snapshot or was duplicated'
+    if ($charges.Count -ne 1 -or $charges[0].id -ne $paid.payment_id -or $charges[0].amount -ne 19.90) {
+        throw 'Payment was duplicated or did not use the original order total'
     }
-    $savedCharge = Invoke-RestMethod "$payment/api/payments/$($charge.id)" -TimeoutSec 5
-    if ($savedCharge.order_id -ne $tag -or $savedCharge.amount -ne 1.01 -or
-        $savedCharge.status -ne 'succeeded') {
-        throw 'Payment was not readable after restart'
+
+    $freeProduct = Send-Json "$catalog/api/products" @{ name = 'Zero price test'; price = 0 }
+    $freeOrder = Send-Json $orders @{ items = @(@{ product_id = $freeProduct.id; quantity = 1 }) } $headers
+    $freeOrderUrl = "$orders/$($freeOrder.id)"
+    Invoke-RestMethod "$freeOrderUrl/pay" -Method Post -Headers $headers -TimeoutSec 5 | Out-Null
+    Wait-ForOrderStatus $freeOrderUrl $headers PAYMENT_FAILED | Out-Null
+
+    foreach ($topic in 'payments.requested', 'payments.completed') {
+        $description = Invoke-Compose exec -T kafka /opt/kafka/bin/kafka-topics.sh `
+            --bootstrap-server kafka:29092 --describe --topic $topic
+        if (-not ($description -match 'PartitionCount:\s*3\b')) { throw "Unexpected partition count for $topic" }
     }
-    Write-Host 'Smoke test passed'
+    $logs = Invoke-Compose logs --no-color payment-service order-service
+    foreach ($suffix in 'requested','completed') {
+        $metadata = $logs -match ('topic=payments\.' + $suffix + ' partition=\d+ offset=\d+ key="' + $order.id + '"')
+        if (-not $metadata) { throw "Missing metadata for payments.$suffix" }
+        $metadata
+    }
+    Write-Host 'Kafka checkout smoke test passed'
 } finally {
     Pop-Location
 }

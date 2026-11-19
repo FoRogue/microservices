@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Статус репозитория
 
-Учебный репозиторий по курсу микросервисов. В **part1** четыре микросервиса на Go.
+Учебный репозиторий по курсу микросервисов. В **part2** исходные четыре сервиса используют Kafka для оплаты.
 
 - `auth-service` (порт 8081) — регистрация/логин, JWT, своя БД `auth`
 - `catalog-service` (порт 8082) — товары + корзина, своя БД `catalog`
@@ -13,6 +13,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 У каждого сервиса свой Go-модуль (`go.mod`), своя PostgreSQL-БД и Dockerfile.
 Сервис заказов обращается к авторизации, каталогу и оплате по HTTP.
+Склад получает события заказов и закупок из Kafka. Контракт событий и транспорт
+находятся в локальном Go-модуле `eventing/`.
 
 ## Архитектура каждого сервиса
 
@@ -43,17 +45,14 @@ go run .                     # запустить локально
 go run github.com/swaggo/swag/cmd/swag init -g main.go -o docs   # перегенерировать Swagger после правки аннотаций
 ```
 
-Из корня репозитория:
+Из корня репозитория в PowerShell:
 
-```bash
-docker compose build auth-service
-docker compose up -d --wait auth-db
-docker compose run --rm auth-service migrate
-docker compose up -d --wait auth-service
+```powershell
+./start.ps1
+./smoke-test.ps1
 ```
 
-Модульные тесты запускаются командой `go test ./...`. Для проверки полного
-сценария покупки используйте `./smoke-test.ps1` из корня репозитория.
+Запускайте модульные тесты командой `go test ./...` из каждого модуля.
 
 ## Работа с Swagger
 
